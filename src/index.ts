@@ -152,6 +152,7 @@ export {
   ZeroAmountError,
   mapContractError,
   UnsupportedBatchSizeError,
+  UnknownContractErrorCodeError,
 } from './errors';
 
 export { RequestQueue, RequestPriority } from './requestQueue';
