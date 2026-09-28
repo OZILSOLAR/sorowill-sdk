@@ -17,6 +17,17 @@ export interface ReadCacheOptions {
   ttlMs?: number;
   now?: () => number;
   persistence?: CachePersistenceAdapter;
+  /**
+   * When `true`, the cache registers a listener on the browser's
+   * `languagechange` event and flushes all entries whenever the user switches
+   * locale. Balance-formatting results are keyed with the active locale, so
+   * stale locale-specific values must be evicted to show amounts in the new
+   * language immediately.
+   *
+   * Has no effect in non-browser environments (where `window` is not defined).
+   * Defaults to `false`.
+   */
+  invalidateOnLocaleChange?: boolean;
 }
 
 interface CacheEntry {
@@ -96,12 +107,22 @@ export class ReadCache {
   private readonly now: () => number;
   private readonly persistence: CachePersistenceAdapter | undefined;
   private readonly readyPromise: Promise<void>;
+  /** Bound reference kept so the listener can be removed on destroy(). */
+  private readonly localeChangeHandler: (() => void) | undefined;
 
   constructor(options: ReadCacheOptions = {}) {
     this.ttlMs = options.ttlMs ?? 60_000;
     this.now = options.now ?? Date.now;
     this.persistence = options.persistence;
     this.readyPromise = this.hydrate();
+
+    // Register a locale-change listener in browser environments when opted in.
+    if (options.invalidateOnLocaleChange && typeof window !== 'undefined') {
+      this.localeChangeHandler = () => {
+        this.clear();
+      };
+      window.addEventListener('languagechange', this.localeChangeHandler);
+    }
   }
 
   async ready(): Promise<void> {
@@ -174,6 +195,20 @@ export class ReadCache {
       // Silently ignore persistence failures to prevent unhandled rejections
       // The cache is cleared in-memory; only durability guarantee is lost
     });
+  }
+
+  /**
+   * Removes the `languagechange` event listener registered when the cache was
+   * constructed with `invalidateOnLocaleChange: true`. Call this when the cache
+   * (and its owning client) is no longer needed to avoid memory leaks from
+   * dangling event listeners.
+   *
+   * Safe to call multiple times and in non-browser environments.
+   */
+  destroy(): void {
+    if (this.localeChangeHandler && typeof window !== 'undefined') {
+      window.removeEventListener('languagechange', this.localeChangeHandler);
+    }
   }
 
   private async delete(key: string): Promise<void> {
